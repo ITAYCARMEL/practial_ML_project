@@ -1,0 +1,120 @@
+---
+title: "practical machine learning project"
+author: "Itay Carmel"
+date: "February 27, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+```
+
+## The goal
+
+The mission in this project is to train a model on dataset of people exercise to predict the manner in which they did the exercise.which is "classe" variable.
+
+## Building the model
+
+First, we downloaded and read the file:
+
+```{r, echo=TRUE}
+url<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+destfile<-"C:/Users/ICarmel/Documents/R/pmltraining.csv"
+download.file(url,destfile)
+mydata<-read.csv("pmltraining.csv")
+```
+
+Next, we explore the data:
+```{r,echo=TRUE}
+dim(mydata)
+names(mydata)
+str(mydata)
+```
+
+About 67 variables are actually missing, noted as NA, i.e are meaningless for our pourpose.
+
+Therefore it would make sense to omit them from the dataset:
+
+```{r,echo=TRUE}
+mydata<-mydata[ , apply(mydata, 2, function(x) !any(is.na(x)))]
+```
+
+We are left with 93 variable and 19622 observations(rows).
+
+We will Split the data based on the "classe" variable so we could train the model on the training portion and than test it on new data. 
+
+
+```{r,echo=TRUE}
+inTrain <- createDataPartition(mydata$classe, p = 3/4)[[1]]
+training <- mydata[ inTrain,]
+testing <- mydata[-inTrain,]
+```
+
+Now we should estimate the importance of each variable and its potential contribution to our model.
+
+To do this, we will use Boruta package. Boruta is a feature ranking and selection algorithm based on random forests algorithm.
+
+```{r,echo=FALSE}
+library(Boruta)
+boruta_output <- Boruta(classe ~ ., data=training, doTrace=0)
+```
+```{r,echo=TRUE}
+par(mar = c(10, 2, 2,2))
+plot(boruta_output, cex.axis=.7, las=2, xlab="", main="Variable Importance")
+roughFixMod <- TentativeRoughFix(boruta_output)
+imps <- attStats(roughFixMod)
+imps2 = imps[imps$decision != 'Rejected', c('meanImp', 'decision')]
+head(imps2[order(-imps2$meanImp), ],6)
+```
+
+The graph as well as the list we got tells us the importance rate of the variables.
+
+We can see that the top 6 important variables are:
+
+1. raw_timestamp_part_1
+2. cvtd_timestamp
+3. roll_belt
+4. yaw_belt
+5. pitch_belt
+6. num_window
+
+However, since "cvtd_timestamp" is actually the date and time the activity was measured we will exclude it from the variables list.
+
+Now we will train a random forest model. We based on random forest algorithm for two reason:
+
+1. It provides higher accuracy.
+2. It has the power to handle a large data set with higher dimensionality.
+
+In addintion, in random forests, there is no need for cross-validation or a separate test set to get an unbiased estimate of the test set error. It is estimated internally, during the run, as follows:
+
+Each tree is constructed using a different bootstrap sample from the original data. About one-third of the cases are left out of the bootstrap sample and not used in the construction of the kth tree ( a snippet from [Breiman's official documentation](https://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm#ooberr))
+
+```{r,echo=TRUE}
+library(randomForest)
+model<-randomForest(classe~raw_timestamp_part_1+roll_belt+yaw_belt+pitch_belt+num_window,data=training)
+print(model)
+```
+
+We can see The OOB estimate of  error rate: 0.03%, which is relatively low.
+Hence, we will run confusion matrix to compare the model result with actual out of sample error which is our test portion of the sample
+
+```{r,echo=TRUE}
+pred<-predict(model,testing)
+confusionMatrix(pred,testing$classe)
+```
+
+We can see that the accuracy of our model is  0.9998 which is pretty good.
+
+Now we will run the model on the test data:
+
+```{r,echo=TRUE}
+url<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+destfile<-"C:/Users/ICarmel/Documents/R/pmltest.csv"
+download.file(url,destfile)
+testdata<-read.csv("pmltest.csv")
+predtest<-predict(model,testdata)
+print(predtest)
+
+```
+
